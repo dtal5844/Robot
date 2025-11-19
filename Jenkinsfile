@@ -20,10 +20,12 @@ pipeline {
                   . .venv/bin/activate
                   pip install --upgrade pip
                   pip install robotframework
-                  # בהמשך: pip install robotframework-browser && rfbrowser init
+                  pip install robotframework-browser
+                  rfbrowser init
                 '''
             }
         }
+
 
         stage('Run Sanity') {
             steps {
