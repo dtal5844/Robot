@@ -79,6 +79,9 @@ fi
 
 echo ">>> Got Xray token successfully"
 
+####################################
+#  Sanity Execution -> Xray
+####################################
 if [ -f sanity-output.xml ]; then
   echo ">>> Creating Sanity info file"
 cat > sanity-info.json <<EOF
@@ -92,23 +95,58 @@ cat > sanity-info.json <<EOF
 EOF
 
   echo ">>> Uploading sanity-output.xml to Xray..."
-  HTTP_CODE=$(curl -s -o xray_sanity_response.json -w "%{http_code}" \
+  SANITY_HTTP_CODE=$(curl -s -o xray_sanity_response.json -w "%{http_code}" \
     -X POST \
     -H "Authorization: Bearer $TOKEN" \
     -F "results=@sanity-output.xml;type=text/xml" \
     -F "info=@sanity-info.json;type=application/json" \
     https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart)
 
-  echo ">>> Xray HTTP code (Sanity): $HTTP_CODE"
+  echo ">>> Xray HTTP code (Sanity): $SANITY_HTTP_CODE"
   echo ">>> Xray response body (Sanity):"
   cat xray_sanity_response.json
 
-  if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
-    echo "!!! Xray upload for Sanity failed with HTTP $HTTP_CODE"
+  if [ "$SANITY_HTTP_CODE" != "200" ] && [ "$SANITY_HTTP_CODE" != "201" ]; then
+    echo "!!! Xray upload for Sanity failed with HTTP $SANITY_HTTP_CODE"
     exit 1
   fi
 else
-  echo ">>> sanity-output.xml missing, skipping upload"
+  echo ">>> sanity-output.xml missing, skipping Sanity upload"
+fi
+
+####################################
+#  Regression Execution -> Xray
+####################################
+if [ -f reg-output.xml ]; then
+  echo ">>> Creating Regression info file"
+cat > reg-info.json <<EOF
+{
+  "fields": {
+    "project": { "key": "${PROJECT_KEY}" },
+    "summary": "Parking App - Regression (build ${BUILD_NUMBER})",
+    "issuetype": { "name": "Test Execution" }
+  }
+}
+EOF
+
+  echo ">>> Uploading reg-output.xml to Xray..."
+  REG_HTTP_CODE=$(curl -s -o xray_reg_response.json -w "%{http_code}" \
+    -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "results=@reg-output.xml;type=text/xml" \
+    -F "info=@reg-info.json;type=application/json" \
+    https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart)
+
+  echo ">>> Xray HTTP code (Regression): $REG_HTTP_CODE"
+  echo ">>> Xray response body (Regression):"
+  cat xray_reg_response.json
+
+  if [ "$REG_HTTP_CODE" != "200" ] && [ "$REG_HTTP_CODE" != "201" ]; then
+    echo "!!! Xray upload for Regression failed with HTTP $REG_HTTP_CODE"
+    exit 1
+  fi
+else
+  echo ">>> reg-output.xml missing, skipping Regression upload"
 fi
             '''
         }
