@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    parameters {
+        string(
+            name: 'TEST_PLAN_KEY',
+            defaultValue: 'AUT-1',
+            description: 'Xray Test Plan key, e.g. AUT-12'
+        )
+    }
+
     environment {
         XRAY_CLIENT_ID     = credentials('xray-client-id')
         XRAY_CLIENT_SECRET = credentials('xray-client-secret')
@@ -39,11 +47,14 @@ pipeline {
 
         stage('Run Sanity') {
             steps {
-                sh '''
-                  set -e
-                  . .venv/bin/activate
-                  robot --output sanity-output.xml --report sanity-report.html --log sanity-log.html tests/sanity
-                '''
+                // אם יש כשל – ה-stage נכשל, אבל הפייפליין ממשיך
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
+                      set -e
+                      . .venv/bin/activate
+                      robot --output sanity-output.xml --report sanity-report.html --log sanity-log.html tests/sanity
+                    '''
+                }
             }
 
             post {
@@ -61,9 +72,8 @@ pipeline {
                         enableCache: true
                     )
 
-                    // ⬇️ העלאה ל-Xray (תמיד, גם אם יש כשל)
+                    // ⬇️ העלאה ל-Xray (תמיד, גם אם יש כשל), בלי להפיל את ה-build
                     sh '''
-                      set -e
                       . .venv/bin/activate
 
                       cat > sanity-info.json << EOF
@@ -74,20 +84,37 @@ pipeline {
                           "issuetype": { "name": "Test Execution" }
                         },
                         "xrayFields": {
-                          "testPlanKey": "AUT-1"
+                          "testPlanKey": "${TEST_PLAN_KEY}"
                         }
                       }
                       EOF
 
+                      echo ">>> Authenticating to Xray Cloud"
                       TOKEN=$(curl -s -H "Content-Type: application/json" -X POST \
                         --data "{ \\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\" }" \
                         https://xray.cloud.getxray.app/api/v2/authenticate | tr -d '"')
 
+                      if [ -z "$TOKEN" ]; then
+                        echo "!!! Failed to get Xray token (TOKEN is empty), skipping upload (not failing build)"
+                        exit 0
+                      fi
+
+                      echo ">>> Uploading Sanity results to Xray (plan ${TEST_PLAN_KEY})"
+
+                      set +e
                       curl -s -X POST \
                         -H "Authorization: Bearer $TOKEN" \
                         -F "results=@sanity-output.xml;type=text/xml" \
                         -F "info=@sanity-info.json;type=application/json" \
                         https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart
+                      XRAY_STATUS=$?
+                      set -e
+
+                      if [ $XRAY_STATUS -ne 0 ]; then
+                        echo "!!! Xray upload for Sanity failed with status $XRAY_STATUS (NOT failing build)"
+                      else
+                        echo ">>> Xray upload for Sanity finished successfully"
+                      fi
                     '''
                 }
             }
@@ -95,11 +122,14 @@ pipeline {
 
         stage('Run Regression') {
             steps {
-                sh '''
-                  set -e
-                  . .venv/bin/activate
-                  robot --output reg-output.xml --report reg-report.html --log reg-log.html tests/regression
-                '''
+                // גם כאן – לא עוצר את הפייפליין אם הטסטים נופלים
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
+                      set -e
+                      . .venv/bin/activate
+                      robot --output reg-output.xml --report reg-report.html --log reg-log.html tests/regression
+                    '''
+                }
             }
 
             post {
@@ -117,7 +147,6 @@ pipeline {
                     )
 
                     sh '''
-                      set -e
                       . .venv/bin/activate
 
                       cat > reg-info.json << EOF
@@ -128,20 +157,37 @@ pipeline {
                           "issuetype": { "name": "Test Execution" }
                         },
                         "xrayFields": {
-                          "testPlanKey": "AUT-1"
+                          "testPlanKey": "${TEST_PLAN_KEY}"
                         }
                       }
                       EOF
 
+                      echo ">>> Authenticating to Xray Cloud"
                       TOKEN=$(curl -s -H "Content-Type: application/json" -X POST \
                         --data "{ \\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\" }" \
                         https://xray.cloud.getxray.app/api/v2/authenticate | tr -d '"')
 
+                      if [ -z "$TOKEN" ]; then
+                        echo "!!! Failed to get Xray token (TOKEN is empty), skipping upload (not failing build)"
+                        exit 0
+                      fi
+
+                      echo ">>> Uploading Regression results to Xray (plan ${TEST_PLAN_KEY})"
+
+                      set +e
                       curl -s -X POST \
                         -H "Authorization: Bearer $TOKEN" \
                         -F "results=@reg-output.xml;type=text/xml" \
                         -F "info=@reg-info.json;type=application/json" \
                         https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart
+                      XRAY_STATUS=$?
+                      set -e
+
+                      if [ $XRAY_STATUS -ne 0 ]; then
+                        echo "!!! Xray upload for Regression failed with status $XRAY_STATUS (NOT failing build)"
+                      else
+                        echo ">>> Xray upload for Regression finished successfully"
+                      fi
                     '''
                 }
             }
