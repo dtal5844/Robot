@@ -59,7 +59,6 @@ pipeline {
     }
 
     post {
-        // נריץ את ההעלאה ל-Xray *רק אם כל הסטייג׳ים עברו בהצלחה*
         success {
             sh '''
               . .venv/bin/activate
@@ -69,20 +68,20 @@ pipeline {
                 --data "{ \\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\" }" \
                 https://xray.cloud.getxray.app/api/v2/authenticate)
 
-              echo ">>> Raw auth response from Xray: $RAW_RESPONSE"
+              echo ">>> Raw auth response: $RAW_RESPONSE"
 
               TOKEN=$(echo "$RAW_RESPONSE" | tr -d '"')
 
               if [ -z "$TOKEN" ]; then
-                echo "!!! TOKEN is empty, failing Xray upload"
+                echo "!!! TOKEN is empty, cannot upload to Xray"
                 exit 1
               fi
 
-              echo ">>> Got Xray token (first 10 chars): ${TOKEN:0:10}******"
+              echo ">>> Got Xray token successfully"
 
-              # -------- Sanity Execution --------
+              # ------------- SANITY UPLOAD -------------
               if [ -f sanity-output.xml ]; then
-                echo ">>> sanity-output.xml found, creating sanity-info.json"
+                echo ">>> Creating Sanity info file"
                 cat > sanity-info.json << EOF
                 {
                   "fields": {
@@ -93,7 +92,7 @@ pipeline {
                 }
                 EOF
 
-                echo ">>> Uploading sanity-output.xml to Xray (no Test Plan yet)"
+                echo ">>> Uploading sanity-output.xml to Xray..."
                 HTTP_CODE=$(curl -s -o xray_sanity_response.json -w "%{http_code}" \
                   -X POST \
                   -H "Authorization: Bearer $TOKEN" \
@@ -106,12 +105,11 @@ pipeline {
                 cat xray_sanity_response.json
 
                 if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
-                  echo "!!! Xray Sanity upload failed with HTTP $HTTP_CODE"
+                  echo "!!! Xray upload for Sanity failed with HTTP $HTTP_CODE"
                   exit 1
                 fi
-
               else
-                echo ">>> sanity-output.xml not found, skipping Sanity upload"
+                echo ">>> sanity-output.xml missing, skipping upload"
               fi
             '''
         }
