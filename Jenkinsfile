@@ -1,6 +1,14 @@
 pipeline {
     agent any
 
+    parameters {
+        string(
+            name: 'TEST_PLAN_KEY',
+            defaultValue: '',
+            description: 'Optional: Xray Test Plan key (e.g. AUT-12). Leave empty to skip linking to a Test Plan.'
+        )
+    }
+
     environment {
         XRAY_CLIENT_ID     = credentials('xray-client-id')
         XRAY_CLIENT_SECRET = credentials('xray-client-secret')
@@ -63,121 +71,114 @@ robot --output reg-output.xml --report reg-report.html --log reg-log.html tests/
             sh '''
 . .venv/bin/activate
 
-##############################################
-# Authenticate
-##############################################
 echo ">>> Authenticating to Xray Cloud..."
-
 RAW_RESPONSE=$(curl -s -H "Content-Type: application/json" -X POST \
   --data "{ \\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\" }" \
   https://xray.cloud.getxray.app/api/v2/authenticate)
 
-echo ">>> Raw auth response: $RAW_RESPONSE"
-
 TOKEN=$(echo "$RAW_RESPONSE" | tr -d '"')
 
 if [ -z "$TOKEN" ]; then
-  echo "!!! TOKEN is empty"
+  echo "!!! TOKEN is empty, cannot upload to Xray"
   exit 1
 fi
 
 echo ">>> Got Xray token"
 
 
-##############################################
-# Create Test Plan (dynamic)
-##############################################
-TP_SUMMARY="Parking App - Full Test Plan (build ${BUILD_NUMBER})"
+####################################
+# Helper: build info JSON for TE
+####################################
+build_info_json() {
+  OUTPUT_FILE="$1"
+  SUMMARY="$2"
+  INFO_JSON="$3"
 
-cat > tp.json <<EOF
+  if [ -n "$TEST_PLAN_KEY" ]; then
+    # עם Test Plan
+    cat > "$INFO_JSON" <<EOF
 {
   "fields": {
     "project": { "key": "${PROJECT_KEY}" },
-    "summary": "${TP_SUMMARY}",
-    "issuetype": { "name": "Test Plan" }
+    "summary": "${SUMMARY}",
+    "issuetype": { "name": "Test Execution" }
+  },
+  "xrayFields": {
+    "testPlanKey": "${TEST_PLAN_KEY}"
   }
 }
 EOF
-
-echo ">>> Creating Test Plan in Xray: $TP_SUMMARY"
-
-TP_RESPONSE=$(curl -s -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  --data @tp.json \
-  https://xray.cloud.getxray.app/api/v2/issues)
-
-echo ">>> TP Response: $TP_RESPONSE"
-
-# חילוץ ה-key מה-JSON בלי grep עם מרכאות שבורות
-TP_KEY=$(printf "%s\n" "$TP_RESPONSE" | sed -n "s/.*\"key\":\"\\([^\"]*\\)\".*/\\1/p")
-
-if [ -z "$TP_KEY" ]; then
-  echo "!!! Failed to extract TP key from response"
-  exit 1
-fi
-
-echo ">>> Created Test Plan: $TP_KEY"
+  else
+    # בלי Test Plan
+    cat > "$INFO_JSON" <<EOF
+{
+  "fields": {
+    "project": { "key": "${PROJECT_KEY}" },
+    "summary": "${SUMMARY}",
+    "issuetype": { "name": "Test Execution" }
+  }
+}
+EOF
+  fi
+}
 
 
-##############################################
-# Upload Sanity
-##############################################
+####################################
+# Sanity Execution -> Xray
+####################################
 if [ -f sanity-output.xml ]; then
+  echo ">>> Preparing Sanity info JSON"
+  build_info_json "sanity-output.xml" "Parking App - Sanity (build ${BUILD_NUMBER})" "sanity-info.json"
 
-cat > sanity-info.json <<EOF
-{
-  "fields": {
-    "project": { "key": "${PROJECT_KEY}" },
-    "summary": "Parking App - Sanity (build ${BUILD_NUMBER})",
-    "issuetype": { "name": "Test Execution" }
-  },
-  "xrayFields": {
-    "testPlanKey": "${TP_KEY}"
-  }
-}
-EOF
+  echo ">>> Uploading sanity-output.xml to Xray..."
+  SANITY_HTTP_CODE=$(curl -s -o xray_sanity_response.json -w "%{http_code}" \
+    -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "results=@sanity-output.xml;type=text/xml" \
+    -F "info=@sanity-info.json;type=application/json" \
+    https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart)
 
-echo ">>> Uploading Sanity Execution to TP: ${TP_KEY}"
+  echo ">>> Xray HTTP code (Sanity): $SANITY_HTTP_CODE"
+  echo ">>> Xray response body (Sanity):"
+  cat xray_sanity_response.json
 
-curl -s -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "results=@sanity-output.xml;type=text/xml" \
-  -F "info=@sanity-info.json;type=application/json" \
-  https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart
-
+  if [ "$SANITY_HTTP_CODE" != "200" ] && [ "$SANITY_HTTP_CODE" != "201" ]; then
+    echo "!!! Xray upload for Sanity failed with HTTP $SANITY_HTTP_CODE"
+    exit 1
+  fi
+else
+  echo ">>> sanity-output.xml missing, skipping Sanity upload"
 fi
 
 
-##############################################
-# Upload Regression
-##############################################
+####################################
+# Regression Execution -> Xray
+####################################
 if [ -f reg-output.xml ]; then
+  echo ">>> Preparing Regression info JSON"
+  build_info_json "reg-output.xml" "Parking App - Regression (build ${BUILD_NUMBER})" "reg-info.json"
 
-cat > reg-info.json <<EOF
-{
-  "fields": {
-    "project": { "key": "${PROJECT_KEY}" },
-    "summary": "Parking App - Regression (build ${BUILD_NUMBER})",
-    "issuetype": { "name": "Test Execution" }
-  },
-  "xrayFields": {
-    "testPlanKey": "${TP_KEY}"
-  }
-}
-EOF
+  echo ">>> Uploading reg-output.xml to Xray..."
+  REG_HTTP_CODE=$(curl -s -o xray_reg_response.json -w "%{http_code}" \
+    -X POST \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "results=@reg-output.xml;type=text/xml" \
+    -F "info=@reg-info.json;type=application/json" \
+    https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart)
 
-echo ">>> Uploading Regression Execution to TP: ${TP_KEY}"
+  echo ">>> Xray HTTP code (Regression): $REG_HTTP_CODE"
+  echo ">>> Xray response body (Regression):"
+  cat xray_reg_response.json
 
-curl -s -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "results=@reg-output.xml;type=text/xml" \
-  -F "info=@reg-info.json;type=application/json" \
-  https://xray.cloud.getxray.app/api/v2/import/execution/robot/multipart
-
+  if [ "$REG_HTTP_CODE" != "200" ] && [ "$REG_HTTP_CODE" != "201" ]; then
+    echo "!!! Xray upload for Regression failed with HTTP $REG_HTTP_CODE"
+    exit 1
+  fi
+else
+  echo ">>> reg-output.xml missing, skipping Regression upload"
 fi
 
-echo ">>> All uploads completed"
+echo ">>> All uploads to Xray completed"
             '''
         }
     }
