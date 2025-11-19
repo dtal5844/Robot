@@ -4,7 +4,7 @@ pipeline {
     environment {
         XRAY_CLIENT_ID     = credentials('xray-client-id')
         XRAY_CLIENT_SECRET = credentials('xray-client-secret')
-        PROJECT_KEY        = 'AUT'   // לשנות ל-key שלך
+        PROJECT_KEY        = 'AUT'   // להחליף ל-project key שלך
     }
 
     stages {
@@ -12,12 +12,22 @@ pipeline {
             steps { checkout scm }
         }
 
+        stage('Install Robot') {
+            steps {
+                sh '''
+                  set -e
+                  python3 --version
+                  python3 -m pip install --upgrade pip
+                  python3 -m pip install robotframework
+                '''
+            }
+        }
+
         stage('Run Robot Tests') {
             steps {
                 sh '''
                   set -e
-                  robot --version
-                  robot --output output.xml --report report.html --log log.html tests
+                  python3 -m robot --output output.xml --report report.html --log log.html tests
                 '''
             }
             post {
