@@ -1,33 +1,33 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'python:3.11'   // build runs inside this container
+            args '-u root:root'  // run as root inside the build container
+        }
+    }
 
     environment {
         XRAY_CLIENT_ID     = credentials('xray-client-id')
         XRAY_CLIENT_SECRET = credentials('xray-client-secret')
-        PROJECT_KEY        = 'AUT'   // <- change to your Jira/Xray project key
+        PROJECT_KEY        = 'QAT'   // <-- change to your Jira/Xray project key
     }
 
     stages {
+
         stage('Checkout') {
             steps {
+                // get your code from GitHub
                 checkout scm
             }
         }
 
-        stage('Setup Python & Robot') {
+        stage('Install Robot') {
             steps {
                 sh '''
                     set -e
-                    # Install Python in the Jenkins container (only needed first times)
-                    if ! command -v python3 >/dev/null 2>&1; then
-                      apt-get update
-                      apt-get install -y python3 python3-venv python3-pip
-                    fi
-
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install robotframework
+                    python --version
+                    pip install --no-cache-dir --upgrade pip
+                    pip install --no-cache-dir robotframework
                 '''
             }
         }
@@ -36,7 +36,6 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    . venv/bin/activate
                     # adjust "tests" if your folder name is different
                     robot --output output.xml --report report.html --log log.html tests
                 '''
