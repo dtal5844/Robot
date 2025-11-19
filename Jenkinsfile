@@ -13,18 +13,30 @@ pipeline {
         }
 
         stage('Install Robot') {
-            steps {
-                sh '''
-                  set -e
-                  python3 -m venv .venv
-                  . .venv/bin/activate
-                  pip install --upgrade pip
-                  pip install robotframework
-                  pip install robotframework-browser
-                  rfbrowser init
-                '''
-            }
-        }
+    steps {
+        sh '''
+          set -e
+
+          if [ ! -d ".venv" ]; then
+            echo "Creating venv and installing libs (first time only)..."
+            python3 -m venv .venv
+            . .venv/bin/activate
+            pip install --upgrade pip
+            pip install robotframework robotframework-browser
+            rfbrowser init
+            touch .rfbrowser_done
+          else
+            echo "Reusing existing venv..."
+            . .venv/bin/activate
+
+            pip show robotframework >/dev/null 2>&1 || pip install robotframework
+            pip show robotframework-browser >/dev/null 2>&1 || pip install robotframework-browser
+            [ -f .rfbrowser_done ] || rfbrowser init
+          fi
+        '''
+    }
+}
+
 
 
         stage('Run Sanity') {
