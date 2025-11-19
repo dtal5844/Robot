@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.11'   // build runs inside this container
-            args '-u root:root'  // run as root inside the build container
-        }
-    }
+    agent any
 
     environment {
         XRAY_CLIENT_ID     = credentials('xray-client-id')
