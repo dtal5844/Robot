@@ -4,10 +4,11 @@ pipeline {
     environment {
         XRAY_CLIENT_ID     = credentials('xray-client-id')
         XRAY_CLIENT_SECRET = credentials('xray-client-secret')
-        PROJECT_KEY        = 'AUT'   // להחליף ל-project key שלך
+        PROJECT_KEY        = 'AUT'
     }
 
     stages {
+
         stage('Checkout') {
             steps { checkout scm }
         }
@@ -16,9 +17,10 @@ pipeline {
             steps {
                 sh '''
                   set -e
-                  python3 --version
-                  python3 -m pip install --upgrade pip
-                  python3 -m pip install robotframework
+                  python3 -m venv .venv
+                  . .venv/bin/activate
+                  pip install --upgrade pip
+                  pip install robotframework
                 '''
             }
         }
@@ -27,7 +29,8 @@ pipeline {
             steps {
                 sh '''
                   set -e
-                  python3 -m robot --output output.xml --report report.html --log log.html tests
+                  . .venv/bin/activate
+                  robot --output output.xml --report report.html --log log.html tests
                 '''
             }
             post {
@@ -41,6 +44,7 @@ pipeline {
             steps {
                 sh '''
                   set -e
+
                   TOKEN=$(curl -s -H "Content-Type: application/json" -X POST \
                     --data "{ \\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\" }" \
                     https://xray.cloud.getxray.app/api/v2/authenticate | tr -d '"')
