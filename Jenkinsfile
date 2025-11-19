@@ -19,6 +19,7 @@ pipeline {
 set -e
 
 if [ ! -d ".venv" ]; then
+  echo ">>> Creating venv (first time only)"
   python3 -m venv .venv
   . .venv/bin/activate
   pip install --upgrade pip
@@ -26,6 +27,7 @@ if [ ! -d ".venv" ]; then
   rfbrowser init
   touch .rfbrowser_done
 else
+  echo ">>> Reusing existing venv"
   . .venv/bin/activate
   pip show robotframework >/dev/null 2>&1 || pip install robotframework
   pip show robotframework-browser >/dev/null 2>&1 || pip install robotframework-browser
@@ -64,9 +66,13 @@ robot --output reg-output.xml --report reg-report.html --log reg-log.html tests/
 ##############################################
 # Authenticate
 ##############################################
+echo ">>> Authenticating to Xray Cloud..."
+
 RAW_RESPONSE=$(curl -s -H "Content-Type: application/json" -X POST \
   --data "{ \\"client_id\\": \\"$XRAY_CLIENT_ID\\", \\"client_secret\\": \\"$XRAY_CLIENT_SECRET\\" }" \
   https://xray.cloud.getxray.app/api/v2/authenticate)
+
+echo ">>> Raw auth response: $RAW_RESPONSE"
 
 TOKEN=$(echo "$RAW_RESPONSE" | tr -d '"')
 
@@ -81,7 +87,6 @@ echo ">>> Got Xray token"
 ##############################################
 # Create Test Plan (dynamic)
 ##############################################
-
 TP_SUMMARY="Parking App - Full Test Plan (build ${BUILD_NUMBER})"
 
 cat > tp.json <<EOF
@@ -104,10 +109,11 @@ TP_RESPONSE=$(curl -s -X POST \
 
 echo ">>> TP Response: $TP_RESPONSE"
 
-TP_KEY=$(echo "$TP_RESPONSE" | grep -o '"key":"[^"]*"' | cut -d'"' -f4)
+# חילוץ ה-key מה-JSON בלי grep עם מרכאות שבורות
+TP_KEY=$(printf "%s\n" "$TP_RESPONSE" | sed -n "s/.*\"key\":\"\\([^\"]*\\)\".*/\\1/p")
 
 if [ -z "$TP_KEY" ]; then
-  echo "!!! Failed to extract TP key"
+  echo "!!! Failed to extract TP key from response"
   exit 1
 fi
 
