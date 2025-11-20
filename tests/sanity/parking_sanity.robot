@@ -1,5 +1,5 @@
 *** Settings ***
-Documentation  AUT-20
+Documentation  AUT-20 parking app - home page
 Library    Browser
 Default Tags   AUT-20
 
