@@ -1,4 +1,5 @@
 *** Settings ***
+Documentation  AUT-20
 Library    Browser
 Default Tags   AUT-20
 
