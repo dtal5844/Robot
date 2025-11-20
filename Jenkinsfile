@@ -24,8 +24,6 @@ pipeline {
         stage('Install Robot') {
             steps {
                 sh '''
-set -e
-
 if [ ! -d ".venv" ]; then
   echo ">>> Creating venv (first time only)"
   python3 -m venv .venv
@@ -47,27 +45,29 @@ fi
 
         stage('Run Sanity') {
             steps {
-                sh '''
-set -e
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
 . .venv/bin/activate
 robot --output sanity-output.xml --report sanity-report.html --log sanity-log.html tests/sanity
-                '''
+                    '''
+                }
             }
         }
 
         stage('Run Regression') {
             steps {
-                sh '''
-set -e
+                catchError(buildResult: 'FAILURE', stageResult: 'FAILURE') {
+                    sh '''
 . .venv/bin/activate
 robot --output reg-output.xml --report reg-report.html --log reg-log.html tests/regression
-                '''
+                    '''
+                }
             }
         }
     }
 
     post {
-        success {
+        always {
             sh '''
 . .venv/bin/activate
 
@@ -85,17 +85,12 @@ fi
 
 echo ">>> Got Xray token"
 
-
-####################################
-# Helper: build info JSON for TE
-####################################
 build_info_json() {
   OUTPUT_FILE="$1"
   SUMMARY="$2"
   INFO_JSON="$3"
 
   if [ -n "$TEST_PLAN_KEY" ]; then
-    # עם Test Plan
     cat > "$INFO_JSON" <<EOF
 {
   "fields": {
@@ -109,7 +104,6 @@ build_info_json() {
 }
 EOF
   else
-    # בלי Test Plan
     cat > "$INFO_JSON" <<EOF
 {
   "fields": {
@@ -122,10 +116,6 @@ EOF
   fi
 }
 
-
-####################################
-# Sanity Execution -> Xray
-####################################
 if [ -f sanity-output.xml ]; then
   echo ">>> Preparing Sanity info JSON"
   build_info_json "sanity-output.xml" "Parking App - Sanity (build ${BUILD_NUMBER})" "sanity-info.json"
@@ -150,10 +140,6 @@ else
   echo ">>> sanity-output.xml missing, skipping Sanity upload"
 fi
 
-
-####################################
-# Regression Execution -> Xray
-####################################
 if [ -f reg-output.xml ]; then
   echo ">>> Preparing Regression info JSON"
   build_info_json "reg-output.xml" "Parking App - Regression (build ${BUILD_NUMBER})" "reg-info.json"

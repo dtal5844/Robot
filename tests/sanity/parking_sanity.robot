@@ -1,5 +1,6 @@
 *** Settings ***
 Library    Browser
+Default Tags   AUT-20
 
 *** Test Cases ***
 Parking App Loads - Sanity
